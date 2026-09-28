@@ -36,7 +36,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
-  "http://localhost:3001";
+  "https://studymate-wc97.onrender.com";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const MAX_MATERIAL_LENGTH = 120000;
