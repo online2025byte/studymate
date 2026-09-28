@@ -8,6 +8,143 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+/* =========================================================
+   STUDYMATE FREE / PREMIUM USAGE SYSTEM
+========================================================= */
+
+const FREE_STUDY_LIMIT = 5;
+const FREE_ASK_LIMIT = 10;
+
+const PREMIUM_STUDY_LIMIT = 100;
+const PREMIUM_ASK_LIMIT = 200;
+
+/*
+  First-stage Premium system.
+
+  Add Firebase user IDs here through the
+  STUDYMATE_PREMIUM_USERS environment variable.
+
+  Example:
+  STUDYMATE_PREMIUM_USERS=uid1,uid2,uid3
+
+  Payment integration can replace this later.
+*/
+const premiumUsers = new Set(
+  String(process.env.STUDYMATE_PREMIUM_USERS || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+);
+
+const usageStore = new Map();
+
+function getUsageDate() {
+  const now = new Date();
+
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(now.getUTCDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getUsage(userId) {
+  const today = getUsageDate();
+  const premium = premiumUsers.has(userId);
+
+  let usage = usageStore.get(userId);
+
+  if (!usage || usage.date !== today) {
+    usage = {
+      date: today,
+      study: 0,
+      ask: 0,
+    };
+
+    usageStore.set(userId, usage);
+  }
+
+  return {
+    userId,
+    plan: premium ? "premium" : "free",
+    isPremium: premium,
+    study: {
+      used: usage.study,
+      limit: premium
+        ? PREMIUM_STUDY_LIMIT
+        : FREE_STUDY_LIMIT,
+      remaining: Math.max(
+        0,
+        (premium
+          ? PREMIUM_STUDY_LIMIT
+          : FREE_STUDY_LIMIT) - usage.study
+      ),
+    },
+    ask: {
+      used: usage.ask,
+      limit: premium
+        ? PREMIUM_ASK_LIMIT
+        : FREE_ASK_LIMIT,
+      remaining: Math.max(
+        0,
+        (premium
+          ? PREMIUM_ASK_LIMIT
+          : FREE_ASK_LIMIT) - usage.ask
+      ),
+    },
+  };
+}
+
+function consumeUsage(userId, type) {
+  if (!userId || typeof userId !== "string") {
+    return {
+      allowed: false,
+      error: "A valid StudyMate account is required.",
+    };
+  }
+
+  const today = getUsageDate();
+  const premium = premiumUsers.has(userId);
+
+  let usage = usageStore.get(userId);
+
+  if (!usage || usage.date !== today) {
+    usage = {
+      date: today,
+      study: 0,
+      ask: 0,
+    };
+
+    usageStore.set(userId, usage);
+  }
+
+  const limit =
+    type === "study"
+      ? premium
+        ? PREMIUM_STUDY_LIMIT
+        : FREE_STUDY_LIMIT
+      : premium
+        ? PREMIUM_ASK_LIMIT
+        : FREE_ASK_LIMIT;
+
+  if (usage[type] >= limit) {
+    return {
+      allowed: false,
+      premium,
+      usage: getUsage(userId),
+    };
+  }
+
+  usage[type] += 1;
+
+  return {
+    allowed: true,
+    premium,
+    usage: getUsage(userId),
+  };
+}
+
+
 app.use(cors());
 app.use(express.json({ limit: "5mb" }));
 
@@ -287,6 +424,23 @@ async function askGemini(prompt) {
   return text;
 }
 
+
+/* =========================================================
+   USAGE
+========================================================= */
+
+app.get("/api/usage", (req, res) => {
+  const userId = String(req.query.userId || "").trim();
+
+  if (!userId) {
+    return res.status(400).json({
+      error: "userId is required.",
+    });
+  }
+
+  return res.json(getUsage(userId));
+});
+
 app.get("/api/health", (req, res) => {
   res.json({
     ok: true,
@@ -295,6 +449,31 @@ app.get("/api/health", (req, res) => {
 });
 
 app.post("/api/study", async (req, res) => {
+
+  const userId = String(req.body?.userId || "").trim();
+
+  const usageCheck = consumeUsage(
+    userId,
+    "study"
+  );
+
+  if (!usageCheck.allowed) {
+    return res.status(
+      usageCheck.usage ? 402 : 400
+    ).json({
+      error:
+        usageCheck.usage
+          ? "You have reached your daily AI study limit. Upgrade to Premium for more AI study actions."
+          : usageCheck.error,
+      code:
+        usageCheck.usage
+          ? "PREMIUM_REQUIRED"
+          : "USER_REQUIRED",
+      usage: usageCheck.usage || null,
+    });
+  }
+
+
   try {
     const { action, material } = req.body;
 
@@ -365,6 +544,31 @@ app.post("/api/study", async (req, res) => {
 */
 
 app.post("/api/ask", async (req, res) => {
+
+  const userId = String(req.body?.userId || "").trim();
+
+  const usageCheck = consumeUsage(
+    userId,
+    "ask"
+  );
+
+  if (!usageCheck.allowed) {
+    return res.status(
+      usageCheck.usage ? 402 : 400
+    ).json({
+      error:
+        usageCheck.usage
+          ? "You have reached your daily Ask StudyMate limit. Upgrade to Premium for more questions."
+          : usageCheck.error,
+      code:
+        usageCheck.usage
+          ? "PREMIUM_REQUIRED"
+          : "USER_REQUIRED",
+      usage: usageCheck.usage || null,
+    });
+  }
+
+
   try {
     const { question, material, history = [] } = req.body;
 

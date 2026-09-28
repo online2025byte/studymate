@@ -253,6 +253,14 @@ function App() {
     useState(null);
 
   /* -------------------------------------------------------
+     FREE / PREMIUM USAGE
+  ------------------------------------------------------- */
+
+  const [usage, setUsage] = useState(null);
+  const [usageLoading, setUsageLoading] =
+    useState(false);
+
+  /* -------------------------------------------------------
      DERIVED VALUES
   ------------------------------------------------------- */
 
@@ -296,6 +304,51 @@ function App() {
 
     return unsubscribe;
   }, []);
+
+  /* =======================================================
+     LOAD FREE / PREMIUM USAGE
+  ======================================================= */
+
+  const loadUsage = async () => {
+    if (!user?.uid) {
+      setUsage(null);
+      return;
+    }
+
+    setUsageLoading(true);
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/usage?userId=${encodeURIComponent(user.uid)}`
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error || "Could not load StudyMate usage."
+        );
+      }
+
+      setUsage(data);
+    } catch (usageError) {
+      console.error(
+        "Could not load StudyMate usage:",
+        usageError
+      );
+    } finally {
+      setUsageLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setUsage(null);
+      return;
+    }
+
+    loadUsage();
+  }, [user]);
 
   /* =======================================================
      CREATE / LOAD USER PROFILE
@@ -979,6 +1032,7 @@ function App() {
                 "application/json",
             },
             body: JSON.stringify({
+              userId: user.uid,
               action,
               material:
                 file.text,
@@ -1019,6 +1073,12 @@ function App() {
         data.result,
         file.file.name
       );
+
+      if (data?.usage) {
+        setUsage(data.usage);
+      } else {
+        await loadUsage();
+      }
 
       setMode("result");
     } catch (err) {
@@ -1109,6 +1169,7 @@ function App() {
                 "application/json",
             },
             body: JSON.stringify({
+              userId: user.uid,
               question,
               material:
                 file.text,
@@ -1147,6 +1208,12 @@ function App() {
           },
         ]
       );
+
+      if (data?.usage) {
+        setUsage(data.usage);
+      } else {
+        await loadUsage();
+      }
     } catch (err) {
       console.error(
         "Ask StudyMate error:",
@@ -1280,9 +1347,8 @@ function App() {
     return (
       <Auth
         onSuccess={() => {
-          setEntryMode(
-            "app"
-          );
+          setEntryMode("app");
+          setMode("dashboard");
         }}
       />
     );
@@ -1958,6 +2024,12 @@ function App() {
           userName={
             userName
           }
+          usage={
+            usage
+          }
+          usageLoading={
+            usageLoading
+          }
           historyLoading={
             historyLoading
           }
@@ -2216,6 +2288,8 @@ function DashboardView({
   studyGoal,
   todayMinutes,
   userName,
+  usage,
+  usageLoading,
   historyLoading,
   onBack,
   onStartStudying,
@@ -2336,6 +2410,92 @@ function DashboardView({
           </div>
 
         </div>
+
+      </section>
+
+      <section
+        className="daily-goal-card"
+        style={{
+          marginBottom: "20px",
+        }}
+      >
+
+        <div className="goal-top">
+
+          <div>
+
+            <span className="section-label">
+              YOUR STUDYMATE PLAN
+            </span>
+
+            <h2>
+              {usageLoading
+                ? "Loading..."
+                : usage?.isPremium
+                  ? "⭐ Premium"
+                  : "🆓 Free Plan"}
+            </h2>
+
+          </div>
+
+          <div className="goal-icon">
+            {usage?.isPremium ? "⭐" : "🆓"}
+          </div>
+
+        </div>
+
+        {!usageLoading && usage && (
+          <div
+            style={{
+              display: "grid",
+              gap: "10px",
+              marginTop: "12px",
+            }}
+          >
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+              }}
+            >
+              <span>
+                📚 AI Study Actions
+              </span>
+
+              <strong>
+                {usage.study.remaining} / {usage.study.limit} left
+              </strong>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+              }}
+            >
+              <span>
+                💬 Ask StudyMate
+              </span>
+
+              <strong>
+                {usage.ask.remaining} / {usage.ask.limit} left
+              </strong>
+            </div>
+
+          </div>
+        )}
+
+        {!usageLoading &&
+          usage &&
+          !usage.isPremium && (
+            <p style={{ marginTop: "14px" }}>
+              Upgrade to Premium for 100 AI study actions
+              and 200 Ask StudyMate questions every day.
+            </p>
+          )}
 
       </section>
 
